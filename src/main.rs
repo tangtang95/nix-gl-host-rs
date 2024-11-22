@@ -506,8 +506,7 @@ struct Args {
 
 fn nvidia_main(
     cache_dir: &Path,
-    // dso_vendor_paths will be used later.
-    #[allow(unused_variables)] dso_vendor_paths: &[PathBuf],
+    dso_vendor_paths: &[PathBuf],
     print_ld_library_path: bool,
 ) -> std::io::Result<HashMap<String, String>> {
     log_info("Nvidia routine begins");
@@ -532,9 +531,8 @@ fn nvidia_main(
         .map_err(|e| std::io::Error::new(ErrorKind::AlreadyExists, e.1))?;
     log_info("Cache lock acquired");
 
-    let paths = get_ld_paths();
-    for path in paths {
-        if let Some(res) = scan_dsos_from_dir(&path) {
+    for path in dso_vendor_paths {
+        if let Some(res) = scan_dsos_from_dir(path) {
             cache_content.paths.push(res);
         }
     }
