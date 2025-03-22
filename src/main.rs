@@ -247,9 +247,9 @@ fn get_ld_paths() -> Vec<PathBuf> {
     let mut paths = Vec::new();
 
     // Add LD_LIBRARY_PATH paths
-    if let Ok(ld_path) = env::var("LD_LIBRARY_PATH") {
-        paths.extend(ld_path.split(':').map(PathBuf::from));
-    }
+    // if let Ok(ld_path) = env::var("LD_LIBRARY_PATH") {
+    //     paths.extend(ld_path.split(':').map(PathBuf::from));
+    // }
 
     // Add paths from ld.so.conf file
     let ld_conf_file_path = Path::new("/etc/ld.so.conf");
