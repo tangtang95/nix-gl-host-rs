@@ -9,12 +9,12 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::SystemTime;
 
+use glob::glob;
 use nix::fcntl::{Flock, FlockArg};
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use tempfile::TempDir;
-use glob::glob;
 
 const IN_NIX_STORE: bool = false;
 const CACHE_VERSION: i32 = 3;
@@ -34,7 +34,7 @@ struct ResolvedLib {
 }
 
 impl ResolvedLib {
-    fn new(name: String, dirpath: String, fullpath: String) -> std::io::Result<Self> {
+    fn new(name: String, dirpath: String, fullpath: String) -> anyhow::Result<Self> {
         let metadata = fs::metadata(&fullpath)?;
         let last_modification = metadata
             .modified()?
@@ -212,6 +212,52 @@ lazy_static::lazy_static! {
         Regex::new(r"libnvidia-egl-wayland\.so.*$").unwrap(),
         Regex::new(r"libnvidia-egl-gbm\.so.*$").unwrap(),
     ];
+
+    static ref AMD_DSO_PATTERNS: Vec<Regex> = vec![
+        Regex::new(r"libGLESv2\.so.*$").unwrap(),
+        Regex::new(r"libGLX\.so.*$").unwrap(),
+        Regex::new(r"libGLX_mesa\.so.*$").unwrap(),
+        Regex::new(r"libGLX_indirect\.so.*$").unwrap(),
+        Regex::new(r"libdrm\.so.*$").unwrap(),
+        Regex::new(r"libdrm_.+\.so.*$").unwrap(),
+        Regex::new(r"libffi\.so.*$").unwrap(),
+        Regex::new(r"libgbm\.so.*$").unwrap(),
+        Regex::new(r"libexpat\.so.*$").unwrap(),
+        Regex::new(r"libelf\.so.*$").unwrap(),
+        Regex::new(r"libedit\.so.*$").unwrap(),
+        Regex::new(r"libsensors\.so.*$").unwrap(),
+        Regex::new(r"libSPIRV-Tools\.so.*$").unwrap(),
+        Regex::new(r"libncursesw\.so.*$").unwrap(),
+        Regex::new(r"libLLVM\.so.*$").unwrap(),
+
+        // X11
+        Regex::new(r"libX11-xcb\.so.*$").unwrap(),
+        Regex::new(r"libX11\.so.*$").unwrap(),
+        Regex::new(r"libXext\.so.*$").unwrap(),
+        Regex::new(r"libxcb-.+\.so.*$").unwrap(),
+        Regex::new(r"libxshmfence\.so.*$").unwrap(),
+        Regex::new(r"libXxf86vm\.so.*$").unwrap(),
+
+        // Wayland
+        Regex::new(r"libwayland-server\.so.*$").unwrap(),
+        Regex::new(r"libwayland-client\.so.*$").unwrap(),
+    ];
+
+
+    static ref AMD_GLX_DSO_PATTERNS: Vec<Regex> = vec![
+        Regex::new(r"libGL\.so.*$").unwrap(),
+        Regex::new(r"libGLU\.so.*$").unwrap(),
+        Regex::new(r"libGLEW\.so.*$").unwrap(),
+        Regex::new(r"libGLdispatch\.so.*$").unwrap(),
+        Regex::new(r"libglapi\.so.*$").unwrap(),
+        Regex::new(r"libgallium.*\.so.*$").unwrap(),
+    ];
+
+    static ref AMD_EGL_DSO_PATTERNS: Vec<Regex> = vec![
+        Regex::new(r"libEGL\.so.*$").unwrap(),
+        Regex::new(r"libEGL_mesa\.so.*$").unwrap(),
+        Regex::new(r"libwayland-egl\.so.*$").unwrap(),
+    ];
 }
 
 fn parse_ld_conf_file(ld_conf_file_path: &Path) -> Vec<PathBuf> {
@@ -228,7 +274,14 @@ fn parse_ld_conf_file(ld_conf_file_path: &Path) -> Vec<PathBuf> {
         if line.starts_with("include ") {
             let mut dirglob = line.trim_start_matches("include ").to_string();
             if !dirglob.starts_with("/") {
-                let mut search_path = ld_conf_file_path.canonicalize().unwrap().parent().unwrap().to_str().unwrap().to_string();
+                let mut search_path = ld_conf_file_path
+                    .canonicalize()
+                    .unwrap()
+                    .parent()
+                    .unwrap()
+                    .to_str()
+                    .unwrap()
+                    .to_string();
                 search_path += "/";
                 search_path += &dirglob;
                 dirglob = search_path;
@@ -314,7 +367,7 @@ fn copy_and_patch_libs(
     dsos: &[ResolvedLib],
     dest_dir: &Path,
     rpath: Option<&Path>,
-) -> std::io::Result<()> {
+) -> anyhow::Result<()> {
     let rpath = rpath.unwrap_or(dest_dir);
 
     for dso in dsos {
@@ -345,7 +398,7 @@ fn log_info(message: &str) {
     }
 }
 
-fn patch_dsos(dso_paths: &[PathBuf], rpath: &Path) -> std::io::Result<()> {
+fn patch_dsos(dso_paths: &[PathBuf], rpath: &Path) -> anyhow::Result<()> {
     log_info(&format!("Patching {:?}", dso_paths));
 
     let mut command = Command::new(PATCHELF_PATH);
@@ -357,10 +410,10 @@ fn patch_dsos(dso_paths: &[PathBuf], rpath: &Path) -> std::io::Result<()> {
     let output = command.output()?;
 
     if !output.status.success() {
-        return Err(std::io::Error::new(
-            std::io::ErrorKind::Other,
-            format!("Patchelf failed with status: {}", output.status),
-        ));
+        return Err(anyhow::anyhow!(format!(
+            "Patchelf failed with status: {}",
+            output.status
+        )));
     }
 
     Ok(())
@@ -376,11 +429,37 @@ struct EglIcdConfig {
     library_path: String,
 }
 
-fn generate_nvidia_egl_config_files(egl_conf_dir: &Path) -> std::io::Result<()> {
+fn generate_nvidia_egl_config_files(egl_conf_dir: &Path) -> anyhow::Result<()> {
     let dso_paths = vec![
         ("10_nvidia.json", "libEGL_nvidia.so.0"),
         ("10_nvidia_wayland.json", "libnvidia-egl-wayland.so.1"),
         ("15_nvidia_gbm.json", "libnvidia-egl-gbm.so.1"),
+    ];
+
+    fs::create_dir_all(egl_conf_dir)?;
+
+    for (conf_file_name, dso_name) in dso_paths {
+        let config = EglConfig {
+            file_format_version: "1.0.0".to_string(),
+            icd: EglIcdConfig {
+                library_path: dso_name.to_string(),
+            },
+        };
+
+        let conf_path = egl_conf_dir.join(conf_file_name);
+        log_info(&format!("Writing {} conf to {:?}", dso_name, egl_conf_dir));
+
+        let json = serde_json::to_string_pretty(&config)?;
+        fs::write(conf_path, json)?;
+    }
+
+    Ok(())
+}
+
+fn generate_amd_egl_config_files(egl_conf_dir: &Path) -> anyhow::Result<()> {
+    let dso_paths = vec![
+        ("10_mesa.json", "libEGL.so.1"),
+        ("15_mesa_gbm.json", "libgbm.so.1"),
     ];
 
     fs::create_dir_all(egl_conf_dir)?;
@@ -418,7 +497,7 @@ fn is_dso_cache_up_to_date(dsos: &CacheDirContent, cache_file_path: &Path) -> bo
     false
 }
 
-fn scan_dsos_from_dir(path: &Path) -> Option<LibraryPath> {
+fn scan_nvidia_dsos_from_dir(path: &Path) -> Option<LibraryPath> {
     let generic = resolve_libraries(path, &NVIDIA_DSO_PATTERNS);
 
     if !generic.is_empty() {
@@ -438,11 +517,30 @@ fn scan_dsos_from_dir(path: &Path) -> Option<LibraryPath> {
     }
 }
 
+fn scan_amd_dsos_from_dir(path: &Path) -> Option<LibraryPath> {
+    let generic = resolve_libraries(path, &AMD_DSO_PATTERNS);
+
+    if !generic.is_empty() {
+        let glx = resolve_libraries(path, &AMD_GLX_DSO_PATTERNS);
+        let egl = resolve_libraries(path, &AMD_EGL_DSO_PATTERNS);
+
+        Some(LibraryPath {
+            glx,
+            cuda: Vec::new(),
+            generic,
+            egl,
+            path: path.to_string_lossy().into_owned(),
+        })
+    } else {
+        None
+    }
+}
+
 fn cache_library_path(
     library_path: &LibraryPath,
     temp_cache_dir_root: &Path,
     final_cache_dir_root: &Path,
-) -> std::io::Result<String> {
+) -> anyhow::Result<String> {
     // Hash computation
     let mut hasher = Sha256::new();
     hasher.update(library_path.path.as_bytes());
@@ -493,11 +591,11 @@ fn generate_cache_ld_library_path(cache_paths: &[String]) -> String {
     ld_library_paths.join(":")
 }
 
-fn generate_cache_metadata(
+fn generate_nvidia_cache_metadata(
     cache_dir: &Path,
     cache_content: &CacheDirContent,
     cache_paths: &[String],
-) -> std::io::Result<String> {
+) -> anyhow::Result<String> {
     let cache_file_path = cache_dir.join("cache.json");
     let cached_ld_library_path = cache_dir.join("ld_library_path");
     let egl_conf_dir = cache_dir.join("egl-confs");
@@ -515,6 +613,32 @@ fn generate_cache_metadata(
 
     // Generate EGL config files
     generate_nvidia_egl_config_files(&egl_conf_dir)?;
+
+    Ok(nix_gl_ld_library_path)
+}
+
+fn generate_amd_cache_metadata(
+    cache_dir: &Path,
+    cache_content: &CacheDirContent,
+    cache_paths: &[String],
+) -> anyhow::Result<String> {
+    let cache_file_path = cache_dir.join("cache.json");
+    let cached_ld_library_path = cache_dir.join("ld_library_path");
+    let egl_conf_dir = cache_dir.join("egl-confs");
+
+    // Write cache.json
+    fs::write(&cache_file_path, cache_content.to_json())?;
+
+    // Generate and write LD_LIBRARY_PATH
+    let nix_gl_ld_library_path = generate_cache_ld_library_path(cache_paths);
+    log_info(&format!(
+        "Caching LD_LIBRARY_PATH: {}",
+        nix_gl_ld_library_path
+    ));
+    fs::write(&cached_ld_library_path, &nix_gl_ld_library_path)?;
+
+    // Generate EGL config files
+    generate_amd_egl_config_files(&egl_conf_dir)?;
 
     Ok(nix_gl_ld_library_path)
 }
@@ -544,7 +668,7 @@ fn nvidia_main(
     cache_dir: &Path,
     dso_vendor_paths: &[PathBuf],
     print_ld_library_path: bool,
-) -> std::io::Result<HashMap<String, String>> {
+) -> anyhow::Result<HashMap<String, String>> {
     log_info("Nvidia routine begins");
 
     // Find Host DSOS
@@ -568,7 +692,7 @@ fn nvidia_main(
     log_info("Cache lock acquired");
 
     for path in dso_vendor_paths {
-        if let Some(res) = scan_dsos_from_dir(path) {
+        if let Some(res) = scan_nvidia_dsos_from_dir(path) {
             cache_content.paths.push(res);
         }
     }
@@ -593,7 +717,7 @@ fn nvidia_main(
             .map(|p| cache_dir.join(p).to_string_lossy().into_owned())
             .collect();
 
-        let nix_gl_ld_library_path = Some(generate_cache_metadata(
+        let nix_gl_ld_library_path = Some(generate_nvidia_cache_metadata(
             &tmp_cache_dir,
             &cache_content,
             &cache_absolute_paths,
@@ -644,6 +768,143 @@ fn nvidia_main(
     Ok(new_env)
 }
 
+fn amd_main(
+    cache_dir: &Path,
+    dso_vendor_paths: &[PathBuf],
+    print_ld_library_path: bool,
+) -> anyhow::Result<HashMap<String, String>> {
+    log_info("Amd routine begins");
+
+    // Find Host DSOS
+    log_info("Searching for the host DSOs");
+    let mut cache_content = CacheDirContent::new(Vec::new());
+    let cache_file_path = cache_dir.join("cache.json");
+    let lock_path = cache_dir.parent().unwrap().join("nix-gl-host.lock");
+    let cached_ld_library_path = cache_dir.join("ld_library_path");
+    let egl_conf_dir = cache_dir.join("egl-confs");
+
+    // Cache/Patch DSOs with file locking
+    let lock_file = OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .open(&lock_path)?;
+
+    log_info("Acquiring the cache lock");
+    let lock = Flock::lock(lock_file, FlockArg::LockExclusive)
+        .map_err(|e| std::io::Error::new(ErrorKind::AlreadyExists, e.1))?;
+    log_info("Cache lock acquired");
+
+    for path in dso_vendor_paths {
+        if let Some(res) = scan_amd_dsos_from_dir(path) {
+            cache_content.paths.push(res);
+        }
+    }
+
+    let nix_gl_ld_library_path = if !is_dso_cache_up_to_date(&cache_content, &cache_file_path)
+        || !cached_ld_library_path.exists()
+    {
+        log_info("The cache is not up to date, regenerating it");
+
+        let tmp_dir = TempDir::new()?;
+        let tmp_cache_dir = tmp_dir.path().join("nix-gl-host");
+        fs::create_dir(&tmp_cache_dir)?;
+
+        let mut cache_paths = Vec::new();
+
+        for p in &cache_content.paths {
+            log_info(&format!("Caching {:?}", p));
+            cache_paths.push(cache_library_path(p, &tmp_cache_dir, cache_dir)?);
+        }
+
+        let cache_absolute_paths: Vec<_> = cache_paths
+            .iter()
+            .map(|p| cache_dir.join(p).to_string_lossy().into_owned())
+            .collect();
+
+        let nix_gl_ld_library_path = Some(generate_amd_cache_metadata(
+            &tmp_cache_dir,
+            &cache_content,
+            &cache_absolute_paths,
+        )?);
+
+        log_info(&format!("Moving {:?} to {:?}", tmp_cache_dir, cache_dir));
+        if cache_dir.exists() {
+            fs::remove_dir_all(cache_dir)?;
+        }
+        copy_dir_all(&tmp_cache_dir, cache_dir)?;
+        fs::remove_dir_all(tmp_cache_dir)?;
+        nix_gl_ld_library_path
+    } else {
+        log_info("The cache is up to date, re-using it.");
+        Some(fs::read_to_string(&cached_ld_library_path)?)
+    };
+
+    drop(lock);
+    log_info("Cache lock released");
+
+    let nix_gl_ld_library_path =
+        nix_gl_ld_library_path.expect("The nix-host-gl LD_LIBRARY_PATH is not set");
+
+    log_info(&format!(
+        "Injecting LD_LIBRARY_PATH: {}",
+        nix_gl_ld_library_path
+    ));
+
+    let mut new_env = HashMap::new();
+    new_env.insert("__GLX_VENDOR_LIBRARY_NAME".to_string(), "amd".to_string());
+    new_env.insert(
+        "__EGL_VENDOR_LIBRARY_DIRS".to_string(),
+        egl_conf_dir.to_string_lossy().into_owned(),
+    );
+
+    let ld_library_path = match env::var("LD_LIBRARY_PATH") {
+        Ok(current) => format!("{}:{}", nix_gl_ld_library_path, current),
+        Err(_) => nix_gl_ld_library_path.clone(),
+    };
+
+    if print_ld_library_path {
+        println!("{}", nix_gl_ld_library_path);
+    }
+
+    new_env.insert("LD_LIBRARY_PATH".to_string(), ld_library_path);
+    Ok(new_env)
+}
+
+fn copy_dir_all(src: impl AsRef<Path>, dst: impl AsRef<Path>) -> std::io::Result<()> {
+    fs::create_dir_all(&dst)?;
+    for entry in fs::read_dir(src)? {
+        let entry = entry?;
+        println!("entry: {:?}", entry.path());
+        let ty = entry.file_type()?;
+        if ty.is_dir() {
+            copy_dir_all(entry.path(), dst.as_ref().join(entry.file_name()))?;
+        } else {
+            fs::copy(entry.path(), dst.as_ref().join(entry.file_name()))?;
+        }
+    }
+    Ok(())
+}
+
+enum GpuVendor {
+    Amd,
+    Nvidia,
+    Unsupported(String),
+}
+
+fn detect_gpu_vendor() -> Option<GpuVendor> {
+    let vendor_path = "/sys/class/drm/card0/device/vendor";
+    if let Ok(vendor_id) = fs::read_to_string(vendor_path) {
+        match vendor_id.trim() {
+            "0x1002" => Some(GpuVendor::Amd),
+            "0x10DE" => Some(GpuVendor::Nvidia),
+            id => Some(GpuVendor::Unsupported(id.to_string())),
+        }
+    } else {
+        None
+    }
+}
+
 fn exec_binary(bin_path: &Path, args: &[String]) -> std::io::Result<std::process::Child> {
     log_info(&format!("Execv-ing {:?}", bin_path));
     log_info("Goodbye now.");
@@ -651,7 +912,7 @@ fn exec_binary(bin_path: &Path, args: &[String]) -> std::io::Result<std::process
     Err(Command::new(bin_path).args(args).exec())
 }
 
-fn main() -> std::io::Result<()> {
+fn main() -> anyhow::Result<()> {
     let opt = Args::parse();
 
     let start_time = SystemTime::now();
@@ -673,17 +934,30 @@ fn main() -> std::io::Result<()> {
         get_ld_paths()
     };
 
-    let new_env = nvidia_main(&cache_dir, &host_dsos_paths, opt.print_ld_library_path)?;
+    let new_env = match detect_gpu_vendor() {
+        Some(GpuVendor::Nvidia) => {
+            nvidia_main(&cache_dir, &host_dsos_paths, opt.print_ld_library_path)?
+        }
+        Some(GpuVendor::Amd) => amd_main(&cache_dir, &host_dsos_paths, opt.print_ld_library_path)?,
+        Some(GpuVendor::Unsupported(id)) => {
+            log_info(&format!(
+                "Unsupported GPU vendor: {}, fallback to Nvidia",
+                id
+            ));
+            nvidia_main(&cache_dir, &host_dsos_paths, opt.print_ld_library_path)?
+        }
+        None => {
+            log_info("GPU vendor not found, fallback to Nvidia");
+            nvidia_main(&cache_dir, &host_dsos_paths, opt.print_ld_library_path)?
+        }
+    };
 
     if opt.print_ld_library_path {
         return Ok(());
     }
 
     let Some(nix_binary) = opt.nix_binary else {
-        return Err(std::io::Error::new(
-            ErrorKind::InvalidInput,
-            "binary not specified",
-        ));
+        return Err(anyhow::anyhow!("binary not specified"));
     };
 
     if let Ok(elapsed) = SystemTime::now().duration_since(start_time) {
