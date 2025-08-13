@@ -229,6 +229,12 @@ lazy_static::lazy_static! {
         Regex::new(r"libSPIRV-Tools\.so.*$").unwrap(),
         Regex::new(r"libncursesw\.so.*$").unwrap(),
         Regex::new(r"libLLVM\.so.*$").unwrap(),
+        Regex::new(r"libzstd\.so.*$").unwrap(),
+        Regex::new(r"libstdc\+\+\.so.*$").unwrap(),
+        Regex::new(r"libxml2\.so.*$").unwrap(),
+        Regex::new(r"liblzma\.so.*$").unwrap(),
+        Regex::new(r"libicuuc\.so.*$").unwrap(),
+        Regex::new(r"libicudata\.so.*$").unwrap(),
 
         // X11
         Regex::new(r"libX11-xcb\.so.*$").unwrap(),
@@ -833,7 +839,7 @@ fn amd_main(
             fs::remove_dir_all(cache_dir)?;
         }
         copy_dir_all(&tmp_cache_dir, cache_dir)?;
-        fs::remove_dir_all(tmp_cache_dir)?;
+        fs::remove_dir_all(tmp_dir.path())?;
         nix_gl_ld_library_path
     } else {
         log_info("The cache is up to date, re-using it.");
@@ -875,7 +881,6 @@ fn copy_dir_all(src: impl AsRef<Path>, dst: impl AsRef<Path>) -> std::io::Result
     fs::create_dir_all(&dst)?;
     for entry in fs::read_dir(src)? {
         let entry = entry?;
-        println!("entry: {:?}", entry.path());
         let ty = entry.file_type()?;
         if ty.is_dir() {
             copy_dir_all(entry.path(), dst.as_ref().join(entry.file_name()))?;
