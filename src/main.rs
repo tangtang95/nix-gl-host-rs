@@ -812,7 +812,8 @@ fn amd_main(
     {
         log_info("The cache is not up to date, regenerating it");
 
-        let tmp_dir = TempDir::new()?;
+        // Create temp dir in same file system of cache_dir
+        let tmp_dir = TempDir::new_in(cache_dir.parent().expect("cache dir has always a parent"))?;
         let tmp_cache_dir = tmp_dir.path().join("nix-gl-host");
         fs::create_dir(&tmp_cache_dir)?;
 
@@ -838,8 +839,7 @@ fn amd_main(
         if cache_dir.exists() {
             fs::remove_dir_all(cache_dir)?;
         }
-        copy_dir_all(&tmp_cache_dir, cache_dir)?;
-        fs::remove_dir_all(tmp_dir.path())?;
+        fs::rename(tmp_cache_dir, cache_dir)?;
         nix_gl_ld_library_path
     } else {
         log_info("The cache is up to date, re-using it.");
@@ -875,20 +875,6 @@ fn amd_main(
 
     new_env.insert("LD_LIBRARY_PATH".to_string(), ld_library_path);
     Ok(new_env)
-}
-
-fn copy_dir_all(src: impl AsRef<Path>, dst: impl AsRef<Path>) -> std::io::Result<()> {
-    fs::create_dir_all(&dst)?;
-    for entry in fs::read_dir(src)? {
-        let entry = entry?;
-        let ty = entry.file_type()?;
-        if ty.is_dir() {
-            copy_dir_all(entry.path(), dst.as_ref().join(entry.file_name()))?;
-        } else {
-            fs::copy(entry.path(), dst.as_ref().join(entry.file_name()))?;
-        }
-    }
-    Ok(())
 }
 
 enum GpuVendor {
