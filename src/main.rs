@@ -220,10 +220,10 @@ lazy_static::lazy_static! {
         Regex::new(r"libxatracker\.so.*$").unwrap(),
         Regex::new(r"libvulkan_.*\.so.*$").unwrap(),
         Regex::new(r"libVkLayer_.*\.so.*$").unwrap(),
-        Regex::new(r"gbm/dri_gbm\.so.*$").unwrap(),
-        Regex::new(r"dri/.+_dri\.so.*$").unwrap(),
-        Regex::new(r"dri/.+_drv_video\.so.*$").unwrap(),
-        Regex::new(r"vdpau/libvdpau_.*\.so.*$").unwrap(),
+        Regex::new(r"dri_gbm\.so.*$").unwrap(), // under gbm path
+        Regex::new(r".+_dri\.so.*$").unwrap(), // under dri path
+        Regex::new(r".+_drv_video\.so.*$").unwrap(), // under dri path
+        Regex::new(r"libvdpau_.*\.so.*$").unwrap(), // under vdpau path
 
         // libvdpau (found in nixGL)
         Regex::new(r"libvdpau_va_gl\.so.*$").unwrap(),
@@ -334,7 +334,7 @@ fn parse_ld_conf_file(ld_conf_file_path: &Path) -> Vec<PathBuf> {
     paths
 }
 
-fn get_ld_paths() -> Vec<PathBuf> {
+fn get_ld_paths(gpu_vendor: Option<&GpuVendor>) -> Vec<PathBuf> {
     let mut paths = Vec::new();
 
     // Add LD_LIBRARY_PATH paths
@@ -368,6 +368,16 @@ fn get_ld_paths() -> Vec<PathBuf> {
         PathBuf::from("/run/opengl-driver/lib"),
         PathBuf::from("/usr/lib/wsl/lib"),
     ]);
+ 
+    if let Some(GpuVendor::Amd) = gpu_vendor {
+        let mut suffix_paths = vec![];
+        for path in &paths {
+            suffix_paths.push(path.join("gbm"));
+            suffix_paths.push(path.join("dri"));
+            suffix_paths.push(path.join("vdpau"));
+        }
+        paths.extend(suffix_paths);
+    }
 
     // Filter only existing directories
     paths.into_iter().filter(|p| p.is_dir()).collect()
@@ -946,6 +956,7 @@ fn main() -> anyhow::Result<()> {
 
     log_info(&format!("Using {:?} as cache dir.", cache_dir));
 
+    let gpu_vendor = detect_gpu_vendor();
     let host_dsos_paths = if let Some(dir) = opt.driver_directory {
         log_info(&format!(
             "Retrieving DSOs from the specified directory: {:?}",
@@ -954,10 +965,10 @@ fn main() -> anyhow::Result<()> {
         vec![dir]
     } else {
         log_info("Retrieving DSOs from the load path.");
-        get_ld_paths()
+        get_ld_paths(gpu_vendor.as_ref())
     };
 
-    let new_env = match detect_gpu_vendor() {
+    let new_env = match gpu_vendor {
         Some(GpuVendor::Nvidia) => {
             nvidia_main(&cache_dir, &host_dsos_paths, opt.print_ld_library_path)?
         }
