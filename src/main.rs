@@ -252,7 +252,6 @@ lazy_static::lazy_static! {
         Regex::new(r"libexpat\.so.*$").unwrap(),
         Regex::new(r"libdrm\.so.*$").unwrap(),
         Regex::new(r"libdrm_.+\.so.*$").unwrap(),
-        Regex::new(r"libgcc_s\.so.*$").unwrap(),
         Regex::new(r"libz\.so.*$").unwrap(),
         Regex::new(r"libzstd\.so.*$").unwrap(),
         Regex::new(r"libLLVM\.so.*$").unwrap(),
