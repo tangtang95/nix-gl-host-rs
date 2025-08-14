@@ -215,12 +215,15 @@ lazy_static::lazy_static! {
 
     static ref AMD_DSO_PATTERNS: Vec<Regex> = vec![
         // mesa lib (found in nixGL)
-        // TODO: what about dri, gmb, and vdpau dirs?
         Regex::new(r"libgallium.*\.so.*$").unwrap(),
         Regex::new(r"libteflon\.so.*$").unwrap(),
         Regex::new(r"libxatracker\.so.*$").unwrap(),
         Regex::new(r"libvulkan_.*\.so.*$").unwrap(),
         Regex::new(r"libVkLayer_.*\.so.*$").unwrap(),
+        Regex::new(r"gbm/dri_gbm\.so.*$").unwrap(),
+        Regex::new(r"dri/.+_dri\.so.*$").unwrap(),
+        Regex::new(r"dri/.+_drv_video\.so.*$").unwrap(),
+        Regex::new(r"vdpau/libvdpau_.*\.so.*$").unwrap(),
 
         // libvdpau (found in nixGL)
         Regex::new(r"libvdpau_va_gl\.so.*$").unwrap(),
@@ -229,36 +232,45 @@ lazy_static::lazy_static! {
         Regex::new(r"libGLX_indirect\.so.*$").unwrap(),
         Regex::new(r"libGLX_mesa\.so.*$").unwrap(),
 
-        // X11
+        // X11 (dependencies of mesa)
         Regex::new(r"libX11-xcb\.so.*$").unwrap(),
         Regex::new(r"libX11\.so.*$").unwrap(),
         Regex::new(r"libXext\.so.*$").unwrap(),
+        Regex::new(r"libxcb\.so.*$").unwrap(),
         Regex::new(r"libxcb-.+\.so.*$").unwrap(),
         Regex::new(r"libxshmfence\.so.*$").unwrap(),
         Regex::new(r"libXxf86vm\.so.*$").unwrap(),
+        Regex::new(r"libXau\.so.*$").unwrap(),
+        Regex::new(r"libXdmcp\.so.*$").unwrap(),
 
-        // Wayland
+        // Wayland (dependencies of mesa)
         Regex::new(r"libwayland-server\.so.*$").unwrap(),
         Regex::new(r"libwayland-client\.so.*$").unwrap(),
 
-        // Indirect dependencies of mesa and other libs
-        Regex::new(r"libdrm\.so.*$").unwrap(),
-        Regex::new(r"libdrm_.+\.so.*$").unwrap(),
-        Regex::new(r"libffi\.so.*$").unwrap(),
+        // Other dependencies of mesa
         Regex::new(r"libgbm\.so.*$").unwrap(),
         Regex::new(r"libexpat\.so.*$").unwrap(),
-        Regex::new(r"libelf\.so.*$").unwrap(),
-        Regex::new(r"libedit\.so.*$").unwrap(),
-        Regex::new(r"libsensors\.so.*$").unwrap(),
-        Regex::new(r"libSPIRV-Tools\.so.*$").unwrap(),
-        Regex::new(r"libncursesw\.so.*$").unwrap(),
-        Regex::new(r"libLLVM\.so.*$").unwrap(),
+        Regex::new(r"libdrm\.so.*$").unwrap(),
+        Regex::new(r"libdrm_.+\.so.*$").unwrap(),
+        Regex::new(r"libgcc_s\.so.*$").unwrap(),
+        Regex::new(r"libz\.so.*$").unwrap(),
         Regex::new(r"libzstd\.so.*$").unwrap(),
+        Regex::new(r"libLLVM\.so.*$").unwrap(),
+        Regex::new(r"libSPIRV-Tools\.so.*$").unwrap(),
+        Regex::new(r"libsensors\.so.*$").unwrap(),
+        Regex::new(r"libelf\.so.*$").unwrap(),
         Regex::new(r"libstdc\+\+\.so.*$").unwrap(),
+        Regex::new(r"libffi\.so.*$").unwrap(),
+        Regex::new(r"libedit\.so.*$").unwrap(),
+        Regex::new(r"libncursesw\.so.*$").unwrap(),
         Regex::new(r"libxml2\.so.*$").unwrap(),
         Regex::new(r"liblzma\.so.*$").unwrap(),
+        Regex::new(r"libbz2\.so.*$").unwrap(),
         Regex::new(r"libicuuc\.so.*$").unwrap(),
         Regex::new(r"libicudata\.so.*$").unwrap(),
+        Regex::new(r"libpciaccess\.so.*$").unwrap(),
+
+        // NOTE: glibc dependencies are not needed
     ];
 
 
@@ -272,7 +284,7 @@ lazy_static::lazy_static! {
         Regex::new(r"libGLdispatch\.so.*$").unwrap(),
         Regex::new(r"libOpenGL\.so.*$").unwrap(),
 
-        Regex::new(r"libGLU\.so.*$").unwrap(),
+        // Other dependencies of mesa
         Regex::new(r"libglapi\.so.*$").unwrap(),
     ];
 
