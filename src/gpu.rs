@@ -1,9 +1,22 @@
 use std::{fmt::Display, fs};
 
+#[derive(Debug, Clone)]
 pub(crate) enum GpuVendor {
     Amd,
     Nvidia,
     Unsupported(String),
+}
+
+impl TryFrom<String> for GpuVendor {
+    type Error = anyhow::Error;
+
+    fn try_from(value: String) -> Result<Self, Self::Error> {
+        match value.as_str() {
+            "amd" => Ok(GpuVendor::Amd),
+            "nvidia" => Ok(GpuVendor::Nvidia),
+            _ => Err(anyhow::anyhow!("Invalid gpu vendor"))
+        }
+    }
 }
 
 impl Display for GpuVendor {

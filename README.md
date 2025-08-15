@@ -108,18 +108,18 @@ Currently, this project supports the following features:
 | Driver             | GLX    | EGL  | Cuda | OpenCL |
 |--------------------|--------|------|------|--------|
 | Proprietary Nvidia | ✅     | ✅   | ✅   | 🚫     |
-| Mesa               | 🚫     | 🚫   | 🚫   | 🚫     |
+| Mesa               | ✅     | ✅   | 🚫   | 🚫     |
 | Nouveau            | 🚫     | 🚫   | 🚫   | 🚫     |
 | Proprietary AMD    | 🚫     | 🚫   | 🚫   | 🚫     |
 
 It has been tested on the following distributions:
 
-| Distribution | Status |
-|--------------|--------|
-| Ubuntu 20.04 | ✅     |
-| Ubuntu 22.04 | ✅     |
+| Distribution   | Status |
+|----------------|--------|
+| Ubuntu 20.04   | ✅     |
+| Ubuntu 22.04   | ✅     |
+| SteamOS 3.7.13 | ✅     |
 
-If you require more platforms to be supported, [get in touch with us](https://numtide.com/contact).
 
 # Troubleshooting
 
@@ -130,6 +130,15 @@ You can enable the debug tracing of NixGLHost by setting the DEBUG environment v
 ```console
 $ DEBUG=1 nixglhost my-gl-program
 ```
+
+## GPU auto detect fails
+
+If the GPU detected is the wrong one (will be shown in Debug Mode), pass the gpu vendor in the parameters:
+
+```sh
+nixglhost -g amd my-gl-program
+```
+
 
 ## Known error messages
 
@@ -147,6 +156,11 @@ EGL:
 EGLUT: failed to initialize EGL display
 ```
 
+To check for the missing dynamically linked library, use the following command:
+```sh
+strace -e trace=openat -f nixglhost my-gl-program 2>&1 | grep "\.so"
+```
+
 # Previous Work
 
 This works has drawn inspiration from [NixGL](https://github.com/guibou/nixGL). NixGL solves the same issue with a different approach. Instead of re-using the host GL libraries, it uses the Nixpkgs-provided ones to wrap the OpenGL program. With this approach, the graphic drivers are also distributed through Nix. The Nix closure is fully contained. It’s a safer approach as you’re less likely to stumble upon any DSO ABI incompatibility.
@@ -160,22 +174,8 @@ How we see it, NixGL is best adapted for closed environment where the target hos
 
 See the [INTERNALS.md](INTERNALS.md) document.
 
-# Contributing
-
-⚠️ WARNING: we won't accept new driver contributions at this time.
-
-The code needs to be cleaned up and rewritten before scaling to more drivers.
-
-If you require more platforms to be supported, [get in touch with us](https://numtide.com/contact).
-
-# Authors/Maintainers
+# Original Authors
 
 - [Flokli](https://flokli.de/)
 - [Ninjatrappeur](https://alternativebit.fr/)
 
-## Commercial support
-
-Looking for help or customization?
-
-Get in touch with Numtide to get a quote. We make it easy for companies to
-work with Open Source projects: <https://numtide.com/contact>

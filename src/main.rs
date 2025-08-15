@@ -681,6 +681,10 @@ use std::collections::HashMap;
 
 #[derive(Parser, Debug)]
 struct Args {
+    /// Force usage of dsos and metadata for specific gpu vendor. Values: amd, nvidia
+    #[arg(short, long)]
+    gpu_vendor: Option<String>,
+
     /// Use the driver libraries contained in this directory instead of discovering them from the load path
     #[arg(short, long)]
     driver_directory: Option<PathBuf>,
@@ -740,7 +744,7 @@ fn nixglhost_main(
     {
         log_info("The cache is not up to date, regenerating it");
 
-        let tmp_dir = TempDir::new()?;
+        let tmp_dir = TempDir::new_in(cache_dir.parent().expect("cache dir always have a parent dir"))?;
         let tmp_cache_dir = tmp_dir.path().join("nix-gl-host");
         fs::create_dir(&tmp_cache_dir)?;
 
@@ -823,6 +827,7 @@ fn exec_binary(bin_path: &Path, args: &[String]) -> std::io::Result<std::process
 
 fn main() -> anyhow::Result<()> {
     let opt = Args::parse();
+    let gpu_vendor = opt.gpu_vendor.and_then(|g| GpuVendor::try_from(g).ok());
 
     let start_time = SystemTime::now();
     let home = env::var("HOME").expect("HOME environment variable not set");
@@ -843,7 +848,7 @@ fn main() -> anyhow::Result<()> {
         get_ld_paths()
     };
 
-    let new_env = match detect_gpu_vendor() {
+    let new_env = match gpu_vendor.or(detect_gpu_vendor()) {
         Some(GpuVendor::Unsupported(id)) => {
             log_info(&format!("Unsupported GPU vendor: {}, fallback to AMD", id));
             nixglhost_main(
@@ -860,7 +865,7 @@ fn main() -> anyhow::Result<()> {
             opt.print_ld_library_path,
         )?,
         None => {
-            log_info("GPU vendor not found, fallback to Nvidia");
+            log_info("GPU vendor not found, no new env set");
             HashMap::new()
         }
     };
