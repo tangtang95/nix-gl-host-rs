@@ -57,6 +57,7 @@
               sed -i 's|@patchelf-bin@|${pkgs.patchelf}/bin/patchelf|g' src/main.rs
               sed -i 's|const IN_NIX_STORE: bool = false;|const IN_NIX_STORE: bool = true;|g' src/main.rs
             '';
+            meta.mainProgram = "nixglhost";
           });
       in {
         packages.default = nix-gl-host;
