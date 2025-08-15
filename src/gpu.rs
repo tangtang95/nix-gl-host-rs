@@ -1,9 +1,19 @@
-use std::fs;
+use std::{fmt::Display, fs};
 
 pub(crate) enum GpuVendor {
     Amd,
     Nvidia,
     Unsupported(String),
+}
+
+impl Display for GpuVendor {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            GpuVendor::Amd => f.write_str("Amd"),
+            GpuVendor::Nvidia => f.write_str("Nvidia"),
+            GpuVendor::Unsupported(_) => f.write_str("Unsupported GPU"),
+        }
+    }
 }
 
 pub(crate) fn detect_gpu_vendor() -> Option<GpuVendor> {

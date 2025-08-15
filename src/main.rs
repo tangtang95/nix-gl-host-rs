@@ -697,13 +697,13 @@ struct Args {
     args: Vec<String>,
 }
 
-fn nvidia_main(
+fn nixglhost_main(
     gpu_vendor: GpuVendor,
     cache_dir: &Path,
     dso_vendor_paths: &[PathBuf],
     print_ld_library_path: bool,
 ) -> anyhow::Result<HashMap<String, String>> {
-    log_info("Nvidia routine begins");
+    log_info(&format!("{gpu_vendor} routine begins"));
 
     // Find Host DSOS
     log_info("Searching for the host DSOs");
@@ -846,14 +846,14 @@ fn main() -> anyhow::Result<()> {
     let new_env = match detect_gpu_vendor() {
         Some(GpuVendor::Unsupported(id)) => {
             log_info(&format!("Unsupported GPU vendor: {}, fallback to AMD", id));
-            nvidia_main(
+            nixglhost_main(
                 GpuVendor::Amd,
                 &cache_dir,
                 &host_dsos_paths,
                 opt.print_ld_library_path,
             )?
         }
-        Some(gpu_vendor) => nvidia_main(
+        Some(gpu_vendor) => nixglhost_main(
             gpu_vendor,
             &cache_dir,
             &host_dsos_paths,
