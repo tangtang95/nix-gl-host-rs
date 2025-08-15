@@ -10,11 +10,14 @@ use std::process::Command;
 use std::time::SystemTime;
 
 use glob::glob;
+use gpu::{detect_gpu_vendor, GpuVendor};
 use nix::fcntl::{Flock, FlockArg};
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use tempfile::TempDir;
+
+mod gpu;
 
 const IN_NIX_STORE: bool = false;
 const CACHE_VERSION: i32 = 3;
@@ -333,11 +336,6 @@ fn parse_ld_conf_file(ld_conf_file_path: &Path) -> Vec<PathBuf> {
 
 fn get_ld_paths() -> Vec<PathBuf> {
     let mut paths = Vec::new();
-
-    // Add LD_LIBRARY_PATH paths
-    // if let Ok(ld_path) = env::var("LD_LIBRARY_PATH") {
-    //     paths.extend(ld_path.split(':').map(PathBuf::from));
-    // }
 
     // Add paths from ld.so.conf file
     let ld_conf_file_path = Path::new("/etc/ld.so.conf");
@@ -700,6 +698,7 @@ struct Args {
 }
 
 fn nvidia_main(
+    gpu_vendor: GpuVendor,
     cache_dir: &Path,
     dso_vendor_paths: &[PathBuf],
     print_ld_library_path: bool,
@@ -727,7 +726,11 @@ fn nvidia_main(
     log_info("Cache lock acquired");
 
     for path in dso_vendor_paths {
-        if let Some(res) = scan_nvidia_dsos_from_dir(path) {
+        let dsos = match gpu_vendor {
+            GpuVendor::Nvidia => scan_nvidia_dsos_from_dir(path),
+            GpuVendor::Amd | GpuVendor::Unsupported(_) => scan_amd_dsos_from_dir(path),
+        };
+        if let Some(res) = dsos {
             cache_content.paths.push(res);
         }
     }
@@ -752,11 +755,19 @@ fn nvidia_main(
             .map(|p| cache_dir.join(p).to_string_lossy().into_owned())
             .collect();
 
-        let nix_gl_ld_library_path = Some(generate_nvidia_cache_metadata(
-            &tmp_cache_dir,
-            &cache_content,
-            &cache_absolute_paths,
-        )?);
+        let nix_gl_ld_library_path = match gpu_vendor {
+            GpuVendor::Amd => generate_amd_cache_metadata(
+                &tmp_cache_dir,
+                &cache_content,
+                &cache_absolute_paths,
+            ).ok(),
+            GpuVendor::Nvidia => generate_nvidia_cache_metadata(
+                &tmp_cache_dir,
+                &cache_content,
+                &cache_absolute_paths,
+            ).ok(),
+            GpuVendor::Unsupported(_) => None,
+        };
 
         log_info(&format!("Moving {:?} to {:?}", tmp_cache_dir, cache_dir));
         if cache_dir.exists() {
@@ -803,128 +814,6 @@ fn nvidia_main(
     Ok(new_env)
 }
 
-fn amd_main(
-    cache_dir: &Path,
-    dso_vendor_paths: &[PathBuf],
-    print_ld_library_path: bool,
-) -> anyhow::Result<HashMap<String, String>> {
-    log_info("Amd routine begins");
-
-    // Find Host DSOS
-    log_info("Searching for the host DSOs");
-    let mut cache_content = CacheDirContent::new(Vec::new());
-    let cache_file_path = cache_dir.join("cache.json");
-    let lock_path = cache_dir.parent().unwrap().join("nix-gl-host.lock");
-    let cached_ld_library_path = cache_dir.join("ld_library_path");
-    let egl_conf_dir = cache_dir.join("egl-confs");
-
-    // Cache/Patch DSOs with file locking
-    let lock_file = OpenOptions::new()
-        .write(true)
-        .create(true)
-        .truncate(true)
-        .open(&lock_path)?;
-
-    log_info("Acquiring the cache lock");
-    let lock = Flock::lock(lock_file, FlockArg::LockExclusive)
-        .map_err(|e| std::io::Error::new(ErrorKind::AlreadyExists, e.1))?;
-    log_info("Cache lock acquired");
-
-    for path in dso_vendor_paths {
-        if let Some(res) = scan_amd_dsos_from_dir(path) {
-            cache_content.paths.push(res);
-        }
-    }
-
-    let nix_gl_ld_library_path = if !is_dso_cache_up_to_date(&cache_content, &cache_file_path)
-        || !cached_ld_library_path.exists()
-    {
-        log_info("The cache is not up to date, regenerating it");
-
-        // Create temp dir in same file system of cache_dir
-        let tmp_dir = TempDir::new_in(cache_dir.parent().expect("cache dir has always a parent"))?;
-        let tmp_cache_dir = tmp_dir.path().join("nix-gl-host");
-        fs::create_dir(&tmp_cache_dir)?;
-
-        let mut cache_paths = Vec::new();
-
-        for p in &cache_content.paths {
-            log_info(&format!("Caching {:?}", p));
-            cache_paths.push(cache_library_path(p, &tmp_cache_dir, cache_dir)?);
-        }
-
-        let cache_absolute_paths: Vec<_> = cache_paths
-            .iter()
-            .map(|p| cache_dir.join(p).to_string_lossy().into_owned())
-            .collect();
-
-        let nix_gl_ld_library_path = Some(generate_amd_cache_metadata(
-            &tmp_cache_dir,
-            &cache_content,
-            &cache_absolute_paths,
-        )?);
-
-        log_info(&format!("Moving {:?} to {:?}", tmp_cache_dir, cache_dir));
-        if cache_dir.exists() {
-            fs::remove_dir_all(cache_dir)?;
-        }
-        fs::rename(tmp_cache_dir, cache_dir)?;
-        nix_gl_ld_library_path
-    } else {
-        log_info("The cache is up to date, re-using it.");
-        Some(fs::read_to_string(&cached_ld_library_path)?)
-    };
-
-    drop(lock);
-    log_info("Cache lock released");
-
-    let nix_gl_ld_library_path =
-        nix_gl_ld_library_path.expect("The nix-host-gl LD_LIBRARY_PATH is not set");
-
-    log_info(&format!(
-        "Injecting LD_LIBRARY_PATH: {}",
-        nix_gl_ld_library_path
-    ));
-
-    let mut new_env = HashMap::new();
-    new_env.insert("__GLX_VENDOR_LIBRARY_NAME".to_string(), "amd".to_string());
-    new_env.insert(
-        "__EGL_VENDOR_LIBRARY_DIRS".to_string(),
-        egl_conf_dir.to_string_lossy().into_owned(),
-    );
-
-    let ld_library_path = match env::var("LD_LIBRARY_PATH") {
-        Ok(current) => format!("{}:{}", nix_gl_ld_library_path, current),
-        Err(_) => nix_gl_ld_library_path.clone(),
-    };
-
-    if print_ld_library_path {
-        println!("{}", nix_gl_ld_library_path);
-    }
-
-    new_env.insert("LD_LIBRARY_PATH".to_string(), ld_library_path);
-    Ok(new_env)
-}
-
-enum GpuVendor {
-    Amd,
-    Nvidia,
-    Unsupported(String),
-}
-
-fn detect_gpu_vendor() -> Option<GpuVendor> {
-    let vendor_path = "/sys/class/drm/card0/device/vendor";
-    if let Ok(vendor_id) = fs::read_to_string(vendor_path) {
-        match vendor_id.trim() {
-            "0x1002" => Some(GpuVendor::Amd),
-            "0x10DE" => Some(GpuVendor::Nvidia),
-            id => Some(GpuVendor::Unsupported(id.to_string())),
-        }
-    } else {
-        None
-    }
-}
-
 fn exec_binary(bin_path: &Path, args: &[String]) -> std::io::Result<std::process::Child> {
     log_info(&format!("Execv-ing {:?}", bin_path));
     log_info("Goodbye now.");
@@ -955,20 +844,24 @@ fn main() -> anyhow::Result<()> {
     };
 
     let new_env = match detect_gpu_vendor() {
-        Some(GpuVendor::Nvidia) => {
-            nvidia_main(&cache_dir, &host_dsos_paths, opt.print_ld_library_path)?
-        }
-        Some(GpuVendor::Amd) => amd_main(&cache_dir, &host_dsos_paths, opt.print_ld_library_path)?,
         Some(GpuVendor::Unsupported(id)) => {
-            log_info(&format!(
-                "Unsupported GPU vendor: {}, fallback to Nvidia",
-                id
-            ));
-            nvidia_main(&cache_dir, &host_dsos_paths, opt.print_ld_library_path)?
+            log_info(&format!("Unsupported GPU vendor: {}, fallback to AMD", id));
+            nvidia_main(
+                GpuVendor::Amd,
+                &cache_dir,
+                &host_dsos_paths,
+                opt.print_ld_library_path,
+            )?
         }
+        Some(gpu_vendor) => nvidia_main(
+            gpu_vendor,
+            &cache_dir,
+            &host_dsos_paths,
+            opt.print_ld_library_path,
+        )?,
         None => {
             log_info("GPU vendor not found, fallback to Nvidia");
-            nvidia_main(&cache_dir, &host_dsos_paths, opt.print_ld_library_path)?
+            HashMap::new()
         }
     };
 
