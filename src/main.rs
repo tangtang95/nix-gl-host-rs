@@ -492,7 +492,9 @@ fn generate_nvidia_egl_config_files(egl_conf_dir: &Path) -> anyhow::Result<()> {
 
 fn generate_amd_egl_config_files(egl_conf_dir: &Path) -> anyhow::Result<()> {
     let dso_paths = vec![
-        ("10_mesa.json", "libEGL.so.1"),
+        ("10_mesa.json", "libEGL_mesa.so.0"),
+        // NOTE: wayland and gbm egl conf files not verified
+        ("10_mesa_wayland.json", "libwayland-egl.so.1"),
         ("15_mesa_gbm.json", "libgbm.so.1"),
     ];
 
