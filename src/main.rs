@@ -215,15 +215,12 @@ lazy_static::lazy_static! {
 
     static ref AMD_DSO_PATTERNS: Vec<Regex> = vec![
         // mesa lib (found in nixGL)
+        // NOTE: dri, gbm, vdpau folder excluded
         Regex::new(r"libgallium.*\.so.*$").unwrap(),
         Regex::new(r"libteflon\.so.*$").unwrap(),
         Regex::new(r"libxatracker\.so.*$").unwrap(),
         Regex::new(r"libvulkan_.*\.so.*$").unwrap(),
         Regex::new(r"libVkLayer_.*\.so.*$").unwrap(),
-        Regex::new(r"gbm/dri_gbm\.so.*$").unwrap(),
-        Regex::new(r"dri/.+_dri\.so.*$").unwrap(),
-        Regex::new(r"dri/.+_drv_video\.so.*$").unwrap(),
-        Regex::new(r"vdpau/libvdpau_.*\.so.*$").unwrap(),
 
         // libvdpau (found in nixGL)
         Regex::new(r"libvdpau_va_gl\.so.*$").unwrap(),
