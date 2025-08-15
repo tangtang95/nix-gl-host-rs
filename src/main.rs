@@ -218,19 +218,22 @@ lazy_static::lazy_static! {
 
     static ref AMD_DSO_PATTERNS: Vec<Regex> = vec![
         // mesa lib (found in nixGL)
-        // NOTE: dri, gbm, vdpau folder excluded
+        // NOTE: dri, gbm, vdpau folder excluded.
+        // there are some error regarding not found /run/opengl-driver/lib/gbm/dri_gbm.so in
+        // spotify, but the app still works
         Regex::new(r"libgallium.*\.so.*$").unwrap(),
         Regex::new(r"libteflon\.so.*$").unwrap(),
         Regex::new(r"libxatracker\.so.*$").unwrap(),
+        // NOTE: vulkan libraries are added but untested
         Regex::new(r"libvulkan_.*\.so.*$").unwrap(),
         Regex::new(r"libVkLayer_.*\.so.*$").unwrap(),
 
         // libglvnd (found in nixGL)
-        Regex::new(r"libGLEW\.so.*$").unwrap(),
+        Regex::new(r"libGL\.so.*$").unwrap(),
+        Regex::new(r"libGLX\.so.*$").unwrap(),
         Regex::new(r"libGLESv1_CM\.so.*$").unwrap(),
-        Regex::new(r"libGLESv2\.so.*$").unwrap(),
         Regex::new(r"libGLdispatch\.so.*$").unwrap(),
-        Regex::new(r"libOpenGL\.so.*$").unwrap(),
+        Regex::new(r"libEGL\.so.*$").unwrap(),
 
         // libvdpau (found in nixGL)
         Regex::new(r"libvdpau_va_gl\.so.*$").unwrap(),
@@ -249,7 +252,6 @@ lazy_static::lazy_static! {
         // Wayland (dependencies of mesa)
         Regex::new(r"libwayland-server\.so.*$").unwrap(),
         Regex::new(r"libwayland-client\.so.*$").unwrap(),
-        Regex::new(r"libwayland-egl\.so.*$").unwrap(),
 
         // Other dependencies of mesa
         Regex::new(r"libgbm\.so.*$").unwrap(),
@@ -280,8 +282,9 @@ lazy_static::lazy_static! {
 
     static ref AMD_GLX_DSO_PATTERNS: Vec<Regex> = vec![
         // libglvnd (found in nixGL)
-        Regex::new(r"libGL\.so.*$").unwrap(),
-        Regex::new(r"libGLX\.so.*$").unwrap(),
+        Regex::new(r"libGLEW\.so.*$").unwrap(),
+        Regex::new(r"libGLESv2\.so.*$").unwrap(),
+        Regex::new(r"libOpenGL\.so.*$").unwrap(),
 
         // mesa_glxindirect lib (found in nixGL)
         Regex::new(r"libGLX_indirect\.so.*$").unwrap(),
@@ -289,11 +292,10 @@ lazy_static::lazy_static! {
     ];
 
     static ref AMD_EGL_DSO_PATTERNS: Vec<Regex> = vec![
-        // libglvnd (found in nixGL)
-        Regex::new(r"libEGL\.so.*$").unwrap(),
-
         // mesa lib (found in nixGL)
         Regex::new(r"libEGL_mesa\.so.*$").unwrap(),
+
+        Regex::new(r"libwayland-egl\.so.*$").unwrap(),
     ];
 }
 
